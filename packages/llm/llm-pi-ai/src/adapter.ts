@@ -201,13 +201,22 @@ function reasoningInfo(
   }
 }
 
-/** Merge deployment headers while removing case-insensitive attribution collisions. */
-function requestHeaders(headers: Readonly<Record<string, string>> | undefined): Record<string, string> {
+/**
+ * Merge deployment headers while removing case-insensitive attribution
+ * collisions. `opencodeSessionId`, when present, rides `x-opencode-session` —
+ * the stable per-conversation id OpenCode Go requires on every request for
+ * routing and prompt cache affinity.
+ */
+function requestHeaders(
+  headers: Readonly<Record<string, string>> | undefined,
+  opencodeSessionId: string | undefined,
+): Record<string, string> {
   const attribution = attributionHeaders()
   const reserved = new Set(Object.keys(attribution).map(name => name.toLowerCase()))
   return {
     ...Object.fromEntries(Object.entries(headers ?? {}).filter(([name]) => !reserved.has(name.toLowerCase()))),
     ...attribution,
+    ...opencodeSessionId === undefined ? {} : { 'x-opencode-session': opencodeSessionId },
   }
 }
 
@@ -372,15 +381,20 @@ export class PiAiAdapter extends LlmAdapter {
             maxBytes: profile.requestImageMaxBytes,
           },
         }, onReplayDegrade)
+      const sessionId = options.sessionId === undefined ? undefined : String(options.sessionId)
+      // OpenCode Go rejects requests without a stable per-conversation id
+      // (400 MissingSessionID). Scoped to opencode* routes: other providers
+      // must not receive the conversation id.
+      const opencodeSessionId = options.provider.toLowerCase().startsWith('opencode') ? sessionId : undefined
       const events = snapshot.models.streamSimple(model, context, {
         ...profileOptions(profile, reasoning, apiKey),
         ...options.temperature === undefined ? {} : { temperature: options.temperature },
         ...options.maxTokens === undefined ? {} : { maxTokens: options.maxTokens },
-        ...options.sessionId === undefined ? {} : { sessionId: String(options.sessionId) },
+        ...sessionId === undefined ? {} : { sessionId },
         signal: watchdog.signal,
         // Profile headers are deployment-owned; attribution names are
         // Harness-owned and therefore win collisions.
-        headers: requestHeaders(profile.headers),
+        headers: requestHeaders(profile.headers, opencodeSessionId),
       })
       const iterator = toStreamChunks(events, model.contextWindow, options.signal)[Symbol.asyncIterator]()
       let exhausted = false
