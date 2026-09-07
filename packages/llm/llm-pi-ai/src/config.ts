@@ -31,6 +31,7 @@ import {
   THINKING_LEVELS,
 } from './catalog.ts'
 import type {
+  DroppedModel,
   PiAiCompatProfile,
   PiAiModality,
   PiAiModelOverride,
@@ -76,6 +77,7 @@ export const DEFAULT_MAX_TOKENS = 32_768
 export const DEFAULT_INPUT: readonly PiAiModality[] = ['text']
 
 export type {
+  DroppedModel,
   PiAiCompatProfile,
   PiAiModality,
   PiAiModelOverride,
@@ -210,6 +212,14 @@ export interface ResolvedPiAiProviderProfile
    * own, so a catalog capability must not appear here.
    */
   configuredMaxTokens: ReadonlyMap<string, number>
+  /**
+   * Configured model entries this profile's stored models list names that the
+   * installed catalog no longer describes, dropped instead of failing the
+   * route (see {@link DroppedModel}). The stored `settings.yaml` line is never
+   * rewritten, so an id a later pi-ai release describes again serves on the
+   * next resolve. `dsh-llm-pi-ai` logs these once per changed configuration.
+   */
+  droppedModels: readonly DroppedModel[]
 }
 
 /** Plugin configuration: the provider routes this instance owns. */
@@ -350,6 +360,15 @@ export const Config: z<Config> = z.object({
  * transform because the schema is also the shape a configuration surface
  * renders and the value an absent section resolves to; wrapping it would break
  * both.
+ *
+ * The one tolerated cause is catalog drift: a models entry the installed
+ * pi-ai catalog no longer describes is dropped from the route (catalog.ts)
+ * rather than refused, because the entry is a snapshot of an earlier pi-ai
+ * release and refusing it would disable the models that still serve. The
+ * settings seam runs this same check on stored sections at registration and on
+ * external publishes, so the tolerance necessarily covers those loads too — a
+ * load/write split is not expressible through the seam's single validator. A
+ * route whose every listed entry drops still refuses here.
  * @param config - the resolved section to check.
  * @throws Error naming the route and configuration entry that cannot be served.
  */
@@ -473,6 +492,7 @@ export function resolveProfiles(
       ...rest.headers === undefined ? {} : { headers: { ...rest.headers } },
       ...rest.thinkingBudgets === undefined ? {} : { thinkingBudgets: { ...rest.thinkingBudgets } },
       configuredMaxTokens: catalog.configuredMaxTokens,
+      droppedModels: catalog.dropped,
       piProvider: buildProvider({
         provider,
         displayName,

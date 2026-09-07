@@ -75,6 +75,7 @@ export { PiAiAdapter } from './adapter.ts'
 export type { PiAiAdapterOptions } from './adapter.ts'
 export { Config } from './config.ts'
 export type {
+  DroppedModel,
   PiAiCompatProfile,
   PiAiModality,
   PiAiModelOverride,
@@ -150,11 +151,14 @@ export function apply(ctx: Context, config: Config): void {
    * snapshot's identity — which is also what makes the adapter's own snapshot
    * stable across operations that observe no change.
    *
-   * No fallback for an unserviceable snapshot lives here: the section schema
-   * resolves the whole profile set, so a write that could not be served is
-   * refused where it is written, and the settings seam keeps a namespace's
-   * last good value for a stored section that fails. Anything reaching this
-   * point has already resolved once.
+   * Resolution drops a stored models entry the installed pi-ai catalog no
+   * longer describes instead of failing the route (catalog.ts), which is what
+   * lets a section snapshotted against an older pi-ai release keep the plugin
+   * and its remaining models serving. The drop becomes a diagnostic here, once
+   * per changed configuration — the memoization by the raw snapshot's identity
+   * is what keeps the same snapshot from being re-reported on every read. The
+   * stored `settings.yaml` line is left untouched; every other unserviceable
+   * configuration still refuses where it is written, exactly as before.
    */
   const profiles = (): ReadonlyMap<string, ResolvedPiAiProviderProfile> => {
     const raw = current()
@@ -162,6 +166,15 @@ export function apply(ctx: Context, config: Config): void {
     const next = resolveProfiles(raw.providers)
     lastRaw = raw
     memoized = next
+    for (const [provider, profile] of next) {
+      if (profile.droppedModels.length === 0) continue
+      const dropped = profile.droppedModels.map(model => `"${model.id}"`).join(', ')
+      ctx.logger.warn(
+        `llm-pi-ai: provider "${provider}" is not serving model ${dropped}, which the installed pi-ai`
+        + ' catalog no longer describes and this route cannot materialize (no api or baseURL in its place);'
+        + ' re-fetch models on the Models page or upgrade pi-ai to restore them',
+      )
+    }
     return next
   }
   profiles()

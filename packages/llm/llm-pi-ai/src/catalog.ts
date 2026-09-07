@@ -9,6 +9,14 @@
  * than at request time: an unserviceable route fails while its configuration is
  * being resolved, which is the earliest point that can name the offending key.
  *
+ * One cause is tolerated at load instead of failing the route: a saved
+ * `models` list is a snapshot of the pi-ai catalog it was taken against, and
+ * when the installed catalog changes between releases a snapshot entry the new
+ * catalog no longer describes cannot be materialized. Such an entry is dropped
+ * with a diagnostic rather than disabling the models that still serve, exactly
+ * as `discovery.ts` skips a malformed listing row instead of failing the whole
+ * interrogation. Every other unserviceable configuration still refuses here.
+ *
  * @module dsh-llm-pi-ai/catalog
  */
 
@@ -769,6 +777,19 @@ function resolveModelCompat(
   return { compat: { ...inherited, ...configured } as ModelCompat }
 }
 
+/** One configured model entry a route resolution dropped instead of serving. */
+export interface DroppedModel {
+  /** Model id the configuration named. */
+  id: string
+  /**
+   * Why the entry could not be materialized. Always the same cause for this
+   * package's one tolerated drop: the installed pi-ai catalog no longer
+   * describes the id, and the route's own declaration does not fill the wire
+   * protocol and endpoint the catalog entry used to supply.
+   */
+  reason: string
+}
+
 /** One route's materialized catalog, plus the request caps its profile chose. */
 export interface RouteCatalog {
   /** The materialized models in configuration order. */
@@ -784,6 +805,13 @@ export interface RouteCatalog {
    * picked, so only an explicit configuration lands here.
    */
   configuredMaxTokens: ReadonlyMap<string, number>
+  /**
+   * Configured model entries this resolution dropped instead of using to fail
+   * the route, in configuration order. See {@link DroppedModel}: a stored
+   * models list can outlive the pi-ai catalog it snapshotted, and refusing the
+   * stale id would disable every model the route still serves.
+   */
+  dropped: readonly DroppedModel[]
 }
 
 /**
@@ -791,8 +819,18 @@ export interface RouteCatalog {
  * under the configured entries. A route with no configured `models` serves the
  * installed catalog unchanged, which is what keeps an existing
  * `providers: { deepseek: { apiKeyEnv: … } }` profile working untouched.
+ *
+ * A configured entry the installed catalog no longer describes — and that this
+ * route cannot fill from its own `api`/`baseURL` — is dropped onto
+ * {@link RouteCatalog.dropped} instead of failing the route: the entry is a
+ * snapshot of an earlier pi-ai release, and refusing it would disable the
+ * models the release still describes. A route whose whole configured list
+ * drops still refuses, because a route with nothing to serve is a
+ * configuration error, never a silent empty route. Every other unserviceable
+ * entry — including one on a route the catalog does not ship at all — keeps
+ * failing exactly as before.
  * @param request - the route-level catalog facts.
- * @returns the materialized models and the explicitly configured request caps.
+ * @returns the materialized models, the explicitly configured request caps, and the dropped entries.
  */
 export function resolveRouteModels(request: RouteCatalogRequest): RouteCatalog {
   const { provider } = request
@@ -845,17 +883,41 @@ export function resolveRouteModels(request: RouteCatalogRequest): RouteCatalog {
   }
   const seen = new Set<string>()
   const configuredMaxTokens = new Map<string, number>()
-  const models = entries.map((entry) => {
+  const models: Model<Api>[] = []
+  const dropped: DroppedModel[] = []
+  for (const entry of entries) {
     if (entry.id.length === 0) invalid(provider, 'has a model with an empty id')
     if (seen.has(entry.id)) invalid(provider, `lists model "${entry.id}" more than once`)
     seen.add(entry.id)
     const base = defaults.get(entry.id)
     const api = request.api ?? base?.api ?? routeApi
+    const baseUrl = request.baseURL ?? base?.baseUrl ?? providerBaseUrl
+    // A models entry the installed catalog no longer describes has no `base`,
+    // and this route (which a snapshot never touched) sets neither api nor
+    // baseURL, so only the missing catalog defaults could have supplied the
+    // wire protocol and endpoint. That is catalog drift, not a config error:
+    // the stored line is a snapshot of an earlier pi-ai release, and failing
+    // the route for it would disable every model this release still describes.
+    // The entry is dropped with its id and reason on the result, mirroring how
+    // discovery's readListing skips an unusable listing row instead of failing
+    // the whole interrogation — but the drop is never silent, and a route with
+    // no surviving model still refuses below.
+    if (defaults.size > 0
+      && base === undefined
+      && request.api === undefined
+      && request.baseURL === undefined
+      && (api === undefined || baseUrl === undefined)) {
+      dropped.push({
+        id: entry.id,
+        reason: 'the installed pi-ai catalog no longer describes it and this route cannot materialize its'
+          + ' wire protocol and endpoint from installed defaults',
+      })
+      continue
+    }
     if (api === undefined) {
       invalid(provider, `model "${entry.id}" needs an api; the installed catalog does not describe it, so set the`
         + ' route\'s api to the wire protocol its endpoint speaks')
     }
-    const baseUrl = request.baseURL ?? base?.baseUrl ?? providerBaseUrl
     if (baseUrl === undefined) {
       invalid(provider, `model "${entry.id}" needs a baseURL; the installed catalog does not describe this route`)
     }
@@ -874,7 +936,7 @@ export function resolveRouteModels(request: RouteCatalogRequest): RouteCatalog {
     // Only a value the profile named is a deployment choice; the catalog's is
     // the model's capability and stays out of request defaults.
     if (entry.maxTokens !== undefined) configuredMaxTokens.set(entry.id, entry.maxTokens)
-    return {
+    models.push({
       // The installed entry lays the floor, and the fields below override it.
       // Enumerating instead would silently drop every `Model` field this
       // package does not model — reasoning-level spellings, compatibility
@@ -892,8 +954,17 @@ export function resolveRouteModels(request: RouteCatalogRequest): RouteCatalog {
       maxTokens,
       ...resolveModelReasoning(provider, entry, base),
       ...resolveModelCompat(provider, entry, request.compat, base, api),
-    }
-  })
+    })
+  }
+  // A route whose every configured entry dropped is still a route with nothing
+  // to serve: tolerating a stale snapshot must never turn it into a silent
+  // empty route, so the refusal stays and names the drop. Resolution of a
+  // dormant route (`entries` empty) refused above with its own message.
+  if (dropped.length > 0 && models.length === 0) {
+    invalid(provider, `lists model ${dropped.map(model => `"${model.id}"`).join(', ')} the installed pi-ai`
+      + ' catalog no longer describes, leaving the route with nothing it can serve; re-fetch models on the'
+      + ' Models page or remove the stale ids from the models list')
+  }
   // Per field, not per block: a route may default a switch its completions
   // models take beside one only its anthropic models do, and neither should
   // fail for the other's sake. What is refused is a route default no model on
@@ -904,5 +975,5 @@ export function resolveRouteModels(request: RouteCatalogRequest): RouteCatalog {
     invalid(provider, `sets compat "${field}", but no model on the route speaks a protocol that takes it;`
       + ` it exists on ${takers.join(', ')}`)
   }
-  return { models, configuredMaxTokens }
+  return { models, configuredMaxTokens, dropped }
 }
