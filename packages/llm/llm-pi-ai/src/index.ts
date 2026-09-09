@@ -75,7 +75,6 @@ export { PiAiAdapter } from './adapter.ts'
 export type { PiAiAdapterOptions } from './adapter.ts'
 export { Config } from './config.ts'
 export type {
-  DroppedModel,
   PiAiCompatProfile,
   PiAiModality,
   PiAiModelOverride,
@@ -124,7 +123,7 @@ function directoryEntries(
 ): LlmConfigurableProvider[] {
   const catalog = new Set(catalogProviderIds())
   const entries = new Map<string, LlmConfigurableProvider>()
-  const declare = (provider: string, displayName: string): void => {
+  const declare = (provider: string, displayName: string, error?: string): void => {
     entries.set(provider, {
       provider,
       displayName,
@@ -134,10 +133,11 @@ function directoryEntries(
       // narrowing a shipped provider's models stores a profile too, and that
       // route is still one pi-ai knows.
       declared: !catalog.has(provider),
+      ...error === undefined ? {} : { error },
     })
   }
   for (const provider of catalog) declare(provider, provider)
-  for (const [provider, profile] of profiles) declare(provider, profile.displayName)
+  for (const [provider, profile] of profiles) declare(provider, profile.displayName, profile.catalogError)
   return [...entries.values()]
 }
 
@@ -151,30 +151,16 @@ export function apply(ctx: Context, config: Config): void {
    * snapshot's identity — which is also what makes the adapter's own snapshot
    * stable across operations that observe no change.
    *
-   * Resolution drops a stored models entry the installed pi-ai catalog no
-   * longer describes instead of failing the route (catalog.ts), which is what
-   * lets a section snapshotted against an older pi-ai release keep the plugin
-   * and its remaining models serving. The drop becomes a diagnostic here, once
-   * per changed configuration — the memoization by the raw snapshot's identity
-   * is what keeps the same snapshot from being re-reported on every read. The
-   * stored `settings.yaml` line is left untouched; every other unserviceable
-   * configuration still refuses where it is written, exactly as before.
+   * Catalog diagnostics stay in the snapshot beside serviceable models, so
+   * stored configuration remains visible after an installed catalog changes.
+   * Scalar configuration errors still reject resolution.
    */
   const profiles = (): ReadonlyMap<string, ResolvedPiAiProviderProfile> => {
     const raw = current()
     if (raw === lastRaw && memoized !== undefined) return memoized
-    const next = resolveProfiles(raw.providers)
+    const next = resolveProfiles(raw.providers, 'deferred')
     lastRaw = raw
     memoized = next
-    for (const [provider, profile] of next) {
-      if (profile.droppedModels.length === 0) continue
-      const dropped = profile.droppedModels.map(model => `"${model.id}"`).join(', ')
-      ctx.logger.warn(
-        `llm-pi-ai: provider "${provider}" is not serving model ${dropped}, which the installed pi-ai`
-        + ' catalog no longer describes and this route cannot materialize (no api or baseURL in its place);'
-        + ' re-fetch models on the Models page or upgrade pi-ai to restore them',
-      )
-    }
     return next
   }
   profiles()
@@ -307,11 +293,16 @@ export function apply(ctx: Context, config: Config): void {
   ensureRegistrationFacts()
 
   ctx.inject(['settings'], (settingsCtx) => {
+    let registering = true
     settingsCtx.settings.installSection(ctx, NS, Config, config, {
-      // Refuse an unserviceable section where it is written: without this a
-      // schema-valid profile the adapter cannot serve would be stored and then
-      // silently disable every route in this namespace.
-      validate: assertServiceable,
+      validate: (value) => {
+        // Stored catalog drift must not prevent registration of the repair UI.
+        if (registering) {
+          resolveProfiles(value.providers, 'deferred')
+        } else {
+          assertServiceable(value, current())
+        }
+      },
       setSource: (source) => {
         current = source
       },
@@ -341,5 +332,6 @@ export function apply(ctx: Context, config: Config): void {
         }
       },
     })
+    registering = false
   })
 }

@@ -18,10 +18,6 @@ Choose **Add provider** and pick a provider dsh ships with; the list shows provi
 
 Providers that sign in with OAuth, such as Codex, are not supported here yet.
 
-### After a pi-ai upgrade
-
-The models a provider saves are a snapshot of the pi-ai catalog they were taken against. When a pi-ai upgrade changes a provider's catalog, a saved model the new catalog does not describe stops being served: the provider loses that row and the log names the model, while every model the new catalog still describes keeps working. The saved `settings.yaml` line is left untouched, so a model a later pi-ai release describes again returns on the next read. To adopt the current catalog instead, open the provider and choose **Fetch available models** again and save the result. A provider whose saved models are all absent from the new catalog is refused until its list is updated, because a provider with no servable model cannot serve.
-
 ## Add a custom provider
 
 Choose **Add a custom provider** for a company gateway, self-hosted server, or provider absent from the installed catalog. Supply a lowercase Provider ID, base URL, API protocol, credential, and at least one model. The **API protocol** must be the one your gateway speaks, and the form offers three: `openai-completions` for OpenAI Chat Completions, `openai-responses` for the OpenAI Responses API, and `anthropic-messages` for the Anthropic Messages API. A provider speaks one protocol, so a gateway that serves two needs two providers.

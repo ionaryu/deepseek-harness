@@ -8,7 +8,7 @@ import type { StreamChunk } from '@deepseek-ai/dsh-llm'
 import FileSettingsProvider from '@deepseek-ai/dsh-settings-file'
 import * as LlmPiAi from '@deepseek-ai/dsh-llm-pi-ai'
 import { PiAiAdapter } from '@deepseek-ai/dsh-llm-pi-ai'
-import { builtinProviders, getBuiltinModels, getBuiltinProviders } from '@earendil-works/pi-ai/providers/all'
+import { getBuiltinModels } from '@earendil-works/pi-ai/providers/all'
 import { createModels, getSupportedThinkingLevels } from '@earendil-works/pi-ai'
 import type { Api, Model, OpenAICompletionsCompat, Provider } from '@earendil-works/pi-ai'
 import { resolveProfiles } from '../src/config.ts'
@@ -171,7 +171,7 @@ describe('hand-declared providers', () => {
       },
     })
     const modelsOf = (route: string): readonly { id: string; contextWindow: number; maxTokens: number }[] =>
-      resolved.get(route)?.piProvider.getModels() ?? []
+      resolved.get(route)?.piProvider?.getModels() ?? []
 
     expect(modelsOf('acme-gateway')).toMatchObject([
       { id: 'bare', contextWindow: 262_144, maxTokens: 32_768 },
@@ -210,7 +210,7 @@ describe('hand-declared providers', () => {
       'anthropic': { defaultInput: ['text'] },
     })
     const inputOf = (route: string, id: string): readonly string[] | undefined =>
-      resolved.get(route)?.piProvider.getModels().find(model => model.id === id)?.input
+      resolved.get(route)?.piProvider?.getModels().find(model => model.id === id)?.input
 
     expect(inputOf('acme-gateway', 'bare')).toEqual(['text'])
     expect(inputOf('acme-gateway', 'seeing')).toEqual(['text', 'image'])
@@ -273,8 +273,8 @@ describe('hand-declared providers', () => {
         models: [{ id: 'bare', input: [] }],
       },
     })
-    expect(resolved.get('acme-gateway')?.piProvider.getModels()[0]?.input).toEqual(['text'])
-    expect(resolved.get('deepseek')?.piProvider.getModels()[0]?.input).toEqual(catalogModel.input)
+    expect(resolved.get('acme-gateway')?.piProvider?.getModels()[0]?.input).toEqual(['text'])
+    expect(resolved.get('deepseek')?.piProvider?.getModels()[0]?.input).toEqual(catalogModel.input)
 
     // Nothing sits below the route value, so its empty list states no answer
     // anything could take, and is refused where it is written.
@@ -302,6 +302,18 @@ describe('hand-declared providers', () => {
     })).toThrow(/more than once/)
   })
 
+  it('retains duplicate-id diagnostics without offering the ambiguous model after loading', () => {
+    const profile = resolveProfiles({
+      'acme-gateway': {
+        api: 'openai-completions',
+        baseURL: 'https://acme.test',
+        models: [{ id: 'dup' }, { id: 'valid' }, { id: 'dup' }],
+      },
+    }, 'deferred').get('acme-gateway')
+    expect(profile?.modelErrors.get('dup')).toContain('lists model "dup" more than once')
+    expect(profile?.piProvider?.getModels().map(model => model.id)).toEqual(['valid'])
+  })
+
   it('rejects a declaration that names no wire protocol or endpoint', () => {
     expect(() => resolveProfiles({
       'acme-gateway': { baseURL: 'https://acme.test', models: [{ id: 'm', contextWindow: 1, maxTokens: 1 }] },
@@ -309,6 +321,18 @@ describe('hand-declared providers', () => {
     expect(() => resolveProfiles({
       'acme-gateway': { api: 'openai-completions', models: [{ id: 'm', contextWindow: 1, maxTokens: 1 }] },
     })).toThrow(/needs a baseURL/)
+  })
+
+  it('retains the missing-api model diagnostic when a stored custom provider cannot be built', () => {
+    const profile = resolveProfiles({
+      'acme-gateway': { baseURL: 'https://acme.test', models: [{ id: '111' }] },
+    }, 'deferred').get('acme-gateway')!
+    const failure = 'llm-pi-ai: provider "acme-gateway" model "111" needs an api; '
+      + 'the installed catalog does not describe it, so set the route\'s api to the wire protocol its endpoint speaks'
+
+    expect(profile.catalogError).toBe(failure)
+    expect(profile.modelErrors.get('111')).toBe(failure)
+    expect(profile.piProvider).toBeUndefined()
   })
 
   it.each(['bedrock-converse-stream', 'google-vertex', 'azure-openai-responses', 'openai-codex-responses'])(
@@ -494,7 +518,7 @@ describe('catalog routes with per-model configuration', () => {
     const resolved = resolveProfiles({
       nvidia: { models: [{ id: headered.id, contextWindow: 4096 }] },
     })
-    const [model] = resolved.get('nvidia')?.piProvider.getModels() ?? []
+    const [model] = resolved.get('nvidia')?.piProvider?.getModels() ?? []
     expect(model?.headers).toEqual(headered.headers)
     expect(model?.contextWindow).toBe(4096)
   })
@@ -520,15 +544,15 @@ describe('catalog routes with per-model configuration', () => {
     // `opencode` ships no provider-level endpoint: the address lives on every
     // catalog model, so the route resolves without any configured baseURL.
     const resolved = resolveProfiles({ opencode: {} })
-    const models = resolved.get('opencode')?.piProvider.getModels() ?? []
+    const models = resolved.get('opencode')?.piProvider?.getModels() ?? []
     expect(models.length).toBeGreaterThan(0)
     expect(models.every(model => model.baseUrl.length > 0)).toBe(true)
-    expect(resolved.get('opencode')?.piProvider.baseUrl).toBeUndefined()
+    expect(resolved.get('opencode')?.piProvider?.baseUrl).toBeUndefined()
   })
 
   it('repoints a catalog route at another wire protocol without restating its endpoint', () => {
     const resolved = resolveProfiles({ openai: { api: 'openai-completions' } })
-    const models = resolved.get('openai')?.piProvider.getModels() ?? []
+    const models = resolved.get('openai')?.piProvider?.getModels() ?? []
     // The protocol changes for the whole route; each model keeps the catalog
     // endpoint it already had.
     expect(models.every(model => model.api === 'openai-completions')).toBe(true)
@@ -559,7 +583,7 @@ describe('catalog routes with per-model configuration', () => {
     // the wire format its models speak: naming an api must not cost a profile
     // its provider-native discovery.
     const resolved = resolveProfiles({ openai: { api: 'openai-completions' } })
-    expect(resolved.get('openai')?.piProvider.auth.apiKey?.name).toBe('OpenAI API key')
+    expect(resolved.get('openai')?.piProvider?.auth.apiKey?.name).toBe('OpenAI API key')
   })
 
   it('lets an OAuth-only catalog route authenticate with the key its profile names', async () => {
@@ -582,7 +606,7 @@ describe('catalog routes with per-model configuration', () => {
     // and holds no OAuth store, so declaring the provider configured would
     // trade a truthful refusal for an endpoint's 401.
     const resolved = resolveProfiles({ 'openai-codex': {} })
-    expect(resolved.get('openai-codex')?.piProvider.auth.apiKey).toBeUndefined()
+    expect(resolved.get('openai-codex')?.piProvider?.auth.apiKey).toBeUndefined()
   })
 })
 
@@ -594,7 +618,7 @@ describe('per-model reasoning efforts', () => {
 
   /** The first materialized model of one route, or throw. */
   function modelOf(providers: Record<string, LlmPiAi.PiAiProviderProfile>, route = 'acme-gateway'): Model<Api> {
-    const [model] = resolveProfiles(providers).get(route)?.piProvider.getModels() ?? []
+    const [model] = resolveProfiles(providers).get(route)?.piProvider?.getModels() ?? []
     if (model === undefined) throw new Error(`route "${route}" resolved no models`)
     return model
   }
@@ -705,7 +729,7 @@ describe('modelOverrides', () => {
         },
       },
     })
-    const models = resolved.get('deepseek')?.piProvider.getModels() ?? []
+    const models = resolved.get('deepseek')?.piProvider?.getModels() ?? []
     const reshaped = models.find(model => model.id === target.id)
     if (reshaped === undefined) throw new Error('the overridden model vanished from the route')
 
@@ -758,30 +782,8 @@ describe('modelOverrides', () => {
 describe('compat switches', () => {
   /** The materialized models of one route, keyed by id. */
   function modelsOf(providers: Record<string, LlmPiAi.PiAiProviderProfile>, route: string): Map<string, Model<Api>> {
-    const models = resolveProfiles(providers).get(route)?.piProvider.getModels() ?? []
+    const models = resolveProfiles(providers).get(route)?.piProvider?.getModels() ?? []
     return new Map(models.map(model => [model.id, model]))
-  }
-
-  /**
-   * One installed route shipping both completions and responses models, plus
-   * one model of each protocol. Which route that is changes with the pi-ai
-   * catalog (xai dropped its completions models in 0.84.4), so the premise is
-   * found rather than pinned to a vendor: a route-level switch must land on
-   * the completions model without invalidating the responses one, whatever
-   * route carries both today.
-   */
-  function mixedCompletionsAndResponses(): {
-    provider: string
-    completions: Model<Api>
-    responses: Model<Api>
-  } {
-    for (const provider of getBuiltinProviders()) {
-      const catalog = getBuiltinModels(provider as never) as readonly Model<Api>[]
-      const completions = catalog.find(model => model.api === 'openai-completions')
-      const responses = catalog.find(model => model.api === 'openai-responses')
-      if (completions !== undefined && responses !== undefined) return { provider, completions, responses }
-    }
-    throw new Error('the installed catalog ships no route with both openai-completions and openai-responses models')
   }
 
   it('applies route switches to every openai-completions model, entries winning per field', () => {
@@ -817,16 +819,17 @@ describe('compat switches', () => {
   })
 
   it('skips models of other protocols on a mixed route instead of failing them', () => {
-    // A route-level switch must land on the completions model without
-    // invalidating the responses model beside it.
-    const mixed = mixedCompletionsAndResponses()
-    const { provider, completions, responses } = mixed
+    const catalog = getBuiltinModels('opencode') as readonly Model<Api>[]
+    const completions = catalog.find(model => model.api === 'openai-completions')
+    const responses = catalog.find(model => model.api === 'openai-responses')
+    if (completions === undefined || responses === undefined) throw new Error('opencode ships no mixed catalog')
+
     const models = modelsOf({
-      [provider]: {
+      opencode: {
         compat: { supportsReasoningEffort: false },
         models: [{ id: completions.id }, { id: responses.id }],
       },
-    }, provider)
+    }, 'opencode')
 
     expect((models.get(completions.id)?.compat as OpenAICompletionsCompat).supportsReasoningEffort).toBe(false)
     expect(models.get(responses.id)?.compat).toEqual(responses.compat)
@@ -895,14 +898,18 @@ describe('compat switches', () => {
   })
 
   it('lands each route switch only on the models whose protocol declares it', () => {
-    const { provider, completions, responses } = mixedCompletionsAndResponses()
+    const catalog = getBuiltinModels('opencode') as readonly Model<Api>[]
+    const completions = catalog.find(model => model.api === 'openai-completions')
+    const responses = catalog.find(model => model.api === 'openai-responses')
+    if (completions === undefined || responses === undefined) throw new Error('opencode ships no mixed catalog')
+
     const models = modelsOf({
-      [provider]: {
+      opencode: {
         // Both protocols take the first switch; only completions takes the second.
         compat: { supportsDeveloperRole: false, thinkingFormat: 'openai' },
         models: [{ id: completions.id }, { id: responses.id }],
       },
-    }, provider)
+    }, 'opencode')
 
     const onCompletions = models.get(completions.id)?.compat as OpenAICompletionsCompat
     expect(onCompletions.supportsDeveloperRole).toBe(false)
@@ -1230,183 +1237,6 @@ describe('configurable-provider directory', () => {
       settingsNs: 'llm-pi-ai',
       settingsPath: ['providers', 'openai-codex'],
       declared: false,
-    })
-  })
-})
-
-describe('catalog drift across pi-ai releases', () => {
-  // A saved models list is a snapshot of the pi-ai catalog it was taken
-  // against. `opencode-go` shipped `grok-4.5` in 0.84.2 and dropped it in
-  // 0.84.4, so a 0.84.2-era list that still names it cannot be materialized
-  // by the installed release — it has no catalog entry, the route sets no
-  // api/baseURL, and opencode-go's mixed protocols give it no route-wide
-  // defaults to fall back on. The installed release is the drift this suite
-  // pins; every test states its premise so a future catalog that describes
-  // the id again, or that changes opencode-go's topology, fails loud instead
-  // of asserting against a changed world.
-  const driftedProvider = 'opencode-go'
-  const staleId = 'grok-4.5'
-
-  function assertDriftedPremise(): void {
-    const models = getBuiltinModels(driftedProvider)
-    if (models.length === 0) throw new Error(`the installed catalog no longer ships "${driftedProvider}"`)
-    if (models.some(model => model.id === staleId)) {
-      throw new Error(`the installed catalog describes "${staleId}" again; update the stale id this spec pins`)
-    }
-  }
-
-  function liveModel(): Model<Api> {
-    const [model] = getBuiltinModels(driftedProvider)
-    if (model === undefined) throw new Error(`the installed catalog ships no "${driftedProvider}" model`)
-    return model
-  }
-
-  it('serves a snapshot’s surviving models and drops the id the catalog no longer describes', () => {
-    assertDriftedPremise()
-    const live = liveModel()
-    const resolved = resolveProfiles({
-      [driftedProvider]: { models: [{ id: staleId }, { id: live.id }] },
-    })
-    const profile = resolved.get(driftedProvider)
-
-    // The stale entry is not served, and nothing about it leaks: the models
-    // list is served in configuration order minus the dropped entry, and a
-    // cap the dropped entry configured never becomes a request default.
-    expect(profile?.piProvider.getModels().map(model => model.id)).toEqual([live.id])
-    expect(profile?.droppedModels.map(model => model.id)).toEqual([staleId])
-    expect(profile?.droppedModels[0]?.reason).toMatch(/no longer describes/)
-    expect(profile?.configuredMaxTokens.has(staleId)).toBe(false)
-  })
-
-  it('refuses a snapshot whose every listed model the catalog no longer describes', () => {
-    assertDriftedPremise()
-    expect(() => resolveProfiles({
-      [driftedProvider]: { models: [{ id: staleId }, { id: 'removed-twin' }] },
-    })).toThrow(/no longer describes, leaving the route with nothing it can serve; re-fetch models/)
-  })
-
-  it('still refuses an undescribed id when the route itself declares transport', () => {
-    assertDriftedPremise()
-    // Tolerance is for stored snapshots that touch no route transport. A route
-    // that sets a baseURL for an id the catalog does not describe is being
-    // configured now, and the missing api is refused loud exactly as before.
-    const apis = new Set(getBuiltinModels(driftedProvider).map(model => model.api))
-    if (apis.size === 1) throw new Error(`"${driftedProvider}" now shares one api; this spec pins its mixed catalog`)
-    expect(() => resolveProfiles({
-      [driftedProvider]: {
-        baseURL: 'https://gateway.example/v1',
-        models: [{ id: staleId }],
-      },
-    })).toThrow(/needs an api/)
-  })
-
-  it('materializes an undescribed entry the route defaults can still fill', () => {
-    // Drop tolerance answers only the drift case. An id a catalog does not
-    // describe is still served when the route's shared protocol and the
-    // provider's own endpoint fill it — the "model newer than the installed
-    // catalog" path — so the drop decision stops at whichever default is
-    // missing.
-    const catalog = getBuiltinModels('deepseek') as readonly Model<Api>[]
-    const apis = new Set(catalog.map(model => model.api))
-    if (catalog.length === 0) throw new Error('the installed catalog ships no deepseek model')
-    if (apis.size !== 1) throw new Error('deepseek now mixes protocols; this spec pins its single-api catalog')
-    const added = 'deepseek-preview'
-    if (catalog.some(model => model.id === added)) {
-      throw new Error(`the installed catalog ships "${added}"; pick a model id this spec can add`)
-    }
-    const provider = builtinProviders().find(entry => entry.id === 'deepseek')
-    if (provider?.baseUrl === undefined) throw new Error('deepseek no longer ships a provider endpoint')
-
-    const resolved = resolveProfiles({
-      deepseek: { models: [{ id: added, contextWindow: 200_000, maxTokens: 8192 }] },
-    })
-    expect(resolved.get('deepseek')?.piProvider.getModels().map(model => model.id)).toEqual([added])
-    expect(resolved.get('deepseek')?.droppedModels).toHaveLength(0)
-  })
-
-  it('drops an undescribed entry when only the route protocol can be defaulted', () => {
-    // The complementary drift shape: a route whose catalog shares one protocol
-    // but ships no provider endpoint. The entry inherits the protocol from the
-    // route's shared api, yet still has no baseURL, so it drops like any other
-    // id the catalog does not describe. The route is found rather than pinned,
-    // because which provider holds that shape changes with the catalog.
-    const provider = builtinProviders().find((entry) => {
-      const catalog = getBuiltinModels(entry.id) as readonly Model<Api>[]
-      const apis = new Set(catalog.map(model => model.api))
-      return catalog.length > 0 && apis.size === 1 && entry.baseUrl === undefined
-    })
-    if (provider === undefined) throw new Error('the installed catalog ships no single-api route without a provider endpoint')
-    const catalog = getBuiltinModels(provider.id) as readonly Model<Api>[]
-    const foreign = 'catalog-drift-probe-id'
-    if (catalog.some(model => model.id === foreign)) {
-      throw new Error(`the installed catalog ships "${foreign}"; pick an id this spec can treat as dropped`)
-    }
-    const [live] = catalog
-    if (live === undefined) throw new Error('the selected route resolved no models')
-
-    const resolved = resolveProfiles({
-      [provider.id]: { models: [{ id: foreign }, { id: live.id }] },
-    })
-    expect(resolved.get(provider.id)?.piProvider.getModels().map(model => model.id)).toEqual([live.id])
-    expect(resolved.get(provider.id)?.droppedModels.map(model => model.id)).toEqual([foreign])
-  })
-
-  it('mounts a stored document whose models list drifted, serving the rest of the route', async () => {
-    // The reported incident: a settings document saved against an older pi-ai
-    // release used to fail registration-time validation, taking the whole
-    // llm-pi-ai plugin down at boot. The same document now mounts, logs the
-    // drop, and serves the models the installed release still describes.
-    assertDriftedPremise()
-    const live = liveModel()
-    const dir = await home()
-    await writeFile(join(dir, 'settings.yaml'), [
-      'llm-pi-ai:',
-      '  providers:',
-      `    ${driftedProvider}:`,
-      '      models:',
-      `        - id: ${staleId}`,
-      `        - id: ${live.id}`,
-      '',
-    ].join('\n'))
-    const ctx = new Context()
-    const warn = vi.spyOn(ctx.logger, 'warn').mockImplementation(() => undefined)
-    await ctx.plugin(LlmRuntime)
-    await ctx.plugin(FileSettingsProvider, { path: join(dir, 'settings.yaml'), watch: false })
-    await ctx.plugin(LlmPiAi, {})
-
-    expect(ctx.llm.listProviders().map(provider => provider.id)).toEqual([driftedProvider])
-    expect((await ctx.llm.listModels(driftedProvider)).map(model => model.id)).toEqual([live.id])
-    // The drop is reported, not silent: one warning naming the route, the
-    // dropped id, and the remediation.
-    expect(warn.mock.calls.filter(([message]) =>
-      typeof message === 'string' && message.includes(driftedProvider) && message.includes(staleId)
-        && message.includes('re-fetch models')).length).toBe(1)
-  })
-
-  it('accepts a write naming a dropped id and keeps the stored line untouched', async () => {
-    // The settings seam runs one validator over loads and writes alike, so the
-    // drift tolerance necessarily covers both (config.ts records the
-    // trade-off). The web Models page can only adopt discovery results, which
-    // are always in the catalog, so a genuine typo on a catalog route cannot
-    // reach this path from the UI.
-    assertDriftedPremise()
-    const live = liveModel()
-    const dir = await home()
-    const ctx = new Context()
-    await ctx.plugin(LlmRuntime)
-    await ctx.plugin(FileSettingsProvider, { path: join(dir, 'settings.yaml'), watch: false })
-    await ctx.plugin(LlmPiAi, {})
-    const warn = vi.spyOn(ctx.logger, 'warn').mockImplementation(() => undefined)
-
-    await ctx.settings.update('llm-pi-ai', {
-      providers: { [driftedProvider]: { models: [{ id: staleId }, { id: live.id }] } },
-    })
-    expect(ctx.llm.listProviders().map(provider => provider.id)).toEqual([driftedProvider])
-    await vi.waitFor(async () => {
-      expect((await ctx.llm.listModels(driftedProvider)).map(model => model.id)).toEqual([live.id])
-      expect(warn.mock.calls.some(([message]) =>
-        typeof message === 'string' && message.includes(driftedProvider) && message.includes(staleId)
-          && message.includes('re-fetch models'))).toBe(true)
     })
   })
 })
