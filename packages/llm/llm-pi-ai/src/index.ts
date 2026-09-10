@@ -248,15 +248,18 @@ export function apply(ctx: Context, config: Config): void {
     if (profile === undefined) return undefined
     return {
       headers: profile.headers,
+      baseURL: profile.baseURL,
+      discoverFromEndpoint: profile.discoverFromEndpoint,
       resolveApiKey: () => resolveApiKey(provider, profile),
     }
   }
   // Interrogating an endpoint is a configuration-time action over a draft, so
   // it is offered for the whole namespace rather than per route: the provider
   // a surface is adding does not exist yet. The draft is the whole request
-  // except the stored credential and deployment-owned headers: the curated UI
-  // accepts neither, so an already-configured route supplies both inside the
-  // Host rather than widening the discovery request.
+  // except the stored credential, deployment-owned headers, declared endpoint,
+  // and catalog opt-out: the curated UI accepts neither credential nor
+  // headers, and a stored route on its catalog default shows no endpoint, so
+  // the Host supplies all four rather than widening the discovery request.
   ctx.llm.registerModelDiscovery(NS, (request, signal) => discoverModels(
     { ...request, ...signal === undefined ? {} : { signal } },
     () => storedDiscoveryProfile(request.provider),

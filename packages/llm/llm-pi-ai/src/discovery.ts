@@ -6,7 +6,11 @@
  * with no network call at all: pi-ai's registry is the authoritative list for
  * its own providers, and it carries the capacities a listing endpoint would
  * not disclose. Only a route the catalog does not describe — a gateway, a
- * self-hosted server — is interrogated over the wire.
+ * self-hosted server — is interrogated over the wire. A catalog route may set
+ * `discoverFromEndpoint` to be interrogated instead, which is how a provider
+ * that added models after the installed pi-ai release shows them; its reply is
+ * enriched from the installed entries of the same ids, and carries nothing for
+ * ids the registry does not describe.
  *
  * Neither path is a catalog refresh. Nothing here is stored: the request
  * carries a draft the user is still editing, and the reply is candidate
@@ -230,6 +234,53 @@ function readListing(body: unknown): LlmDiscoveredModel[] {
 }
 
 /**
+ * The endpoint a named route interrogates when neither the draft nor the
+ * profile declares one: the endpoint the route's installed models of the
+ * listing protocol reach. A listing lives per endpoint, and the protocol is
+ * what shapes the listing URL, so the family's shared endpoint is the one to
+ * ask. When a catalog's models of one protocol reach more than one endpoint,
+ * the first of them answers — declare a baseURL to interrogate a specific
+ * one.
+ * @param provider - provider route key, or `undefined` for a draft.
+ * @param api - the wire protocol the listing will be shaped for.
+ * @returns the endpoint, or `undefined` when the route ships no such model.
+ */
+function catalogListingEndpoint(provider: string | undefined, api: string): string | undefined {
+  if (provider === undefined) return undefined
+  const listed = [...catalogModels(provider).values()].filter(model => model.api === api)
+  return listed[0]?.baseUrl
+}
+
+/**
+ * Fill a listed row's blank capacities and name from the installed catalog
+ * entry of the same id. The endpoint decides which ids exist — that is why a
+ * route asks it — while the registry stays the better source for the
+ * capacities a listing may not disclose. Catalog-only ids are not appended:
+ * resurrecting one the endpoint stopped serving would undo the reason for
+ * asking. A row the catalog does not describe carries no capacities, and a
+ * route whose adopted entry names none serves through its own defaults.
+ */
+function withInstalledCapacities(
+  listed: readonly LlmDiscoveredModel[],
+  provider: string | undefined,
+): readonly LlmDiscoveredModel[] {
+  const installed = provider === undefined ? undefined : catalogModels(provider)
+  if (installed === undefined || installed.size === 0) return listed
+  return listed.map((model) => {
+    const base = installed.get(model.id)
+    if (base === undefined) return model
+    return {
+      ...model,
+      ...model.contextWindow === undefined ? { contextWindow: base.contextWindow } : {},
+      ...model.maxTokens === undefined ? { maxTokens: base.maxTokens } : {},
+      // The listing's own name wins; the fallback-to-id spelling is what the
+      // catalog's display name replaces.
+      ...model.name === model.id && base.name !== model.id ? { name: base.name } : {},
+    }
+  })
+}
+
+/**
  * Accept one probe key, or refuse it before the header is built. Without this
  * the `fetch` below would throw a ByteString `TypeError` that this function's
  * catch reports as `could not reach <url>` — blaming the network for a local,
@@ -252,6 +303,10 @@ function usableProbeKey(raw: string): string {
 export interface StoredModelDiscoveryProfile {
   /** Deployment headers configured on the named route. */
   readonly headers: Readonly<Record<string, string>> | undefined
+  /** The route's declared endpoint; absent when the route serves its catalog default. */
+  readonly baseURL: string | undefined
+  /** Whether the route opted out of the installed-catalog answer for its fetch. */
+  readonly discoverFromEndpoint: boolean
   /** Resolve the named route's credential only when the draft carries none. */
   readonly resolveApiKey: () => Promise<string | undefined>
 }
@@ -259,9 +314,11 @@ export interface StoredModelDiscoveryProfile {
 /**
  * Interrogate one draft provider endpoint for the models it advertises.
  * @param request - the endpoint, protocol, and one-shot credential to use.
- * @param storedProfile - Host-owned headers and lazy credential resolution for
- *   the named route. It is read only on the path that reaches the network; the
- *   credential is resolved only when the draft carries none.
+ * @param storedProfile - Host-owned headers, endpoint, catalog opt-out, and
+ *   lazy credential resolution for the named route. It is read on the
+ *   named-route branch that decides between the installed catalog and the
+ *   network, and the credential it resolves is only asked when the draft
+ *   carries none.
  * @returns the advertised models in endpoint order.
  * @throws LlmError when the protocol has no readable listing, the endpoint
  *   refuses or fails the request, or the reply is not a model listing.
@@ -270,9 +327,15 @@ export async function discoverModels(
   request: LlmModelDiscoveryOperation,
   storedProfile?: () => StoredModelDiscoveryProfile | undefined,
 ): Promise<readonly LlmDiscoveredModel[]> {
+  // Read on the branch that decides between the two answers; the read is
+  // side-effect free, and the credential it would resolve stays lazy.
+  const stored = storedProfile?.()
   // A catalog route already has its answer, and a better one: the installed
   // entries carry context windows and output caps no listing endpoint reports.
-  if (request.provider !== undefined) {
+  // A route that opts out (discoverFromEndpoint) interrogates its endpoint
+  // instead, because a provider can add models after the pi-ai release its
+  // catalog was recorded in.
+  if (request.provider !== undefined && stored?.discoverFromEndpoint !== true) {
     const installed = catalogModels(request.provider)
     if (installed.size > 0) {
       return [...installed.values()].map(model => ({
@@ -283,19 +346,14 @@ export async function discoverModels(
       }))
     }
   }
-  if (request.baseURL === undefined || request.baseURL.length === 0) {
-    throw new LlmError(
-      `pi-ai ships no catalog for provider "${request.provider ?? ''}", so its models can only come from its`
-      + " endpoint; set a baseURL, or enter this provider's models by hand",
-      'DISCOVERY_FAILED',
-    )
-  }
   // A draft that has not chosen a protocol yet is asked as OpenAI Chat
   // Completions: it is the shape a gateway is overwhelmingly likely to speak,
   // and the alternative — refusing until the field is filled — would withhold
   // the action from the case it exists for. The cost is a misdirected message
   // when the endpoint speaks something else (an Anthropic gateway answers 401,
   // which reads as a credential problem), and hand-entry remains the way out.
+  // The protocol is resolved first because it shapes the listing URL a catalog
+  // default endpoint is derived for.
   const api = request.api ?? 'openai-completions'
   if (!LISTABLE_PROTOCOLS.has(api)) {
     throw new LlmError(
@@ -303,13 +361,27 @@ export async function discoverModels(
       'DISCOVERY_UNSUPPORTED',
     )
   }
-  const url = listingUrl(request.baseURL, api)
+  // The endpoint interrogated is the one the draft shows, then the route's
+  // declared one, then the endpoint the route's installed models of this
+  // protocol reach: a stored route on its catalog default carries no declared
+  // baseURL, and that endpoint is what its models would have reached anyway.
+  const endpoint = request.baseURL ?? stored?.baseURL ?? catalogListingEndpoint(request.provider, api)
+  if (endpoint === undefined || endpoint.length === 0) {
+    throw new LlmError(
+      request.provider !== undefined && catalogModels(request.provider).size > 0
+        ? `provider "${request.provider}" lists no "${api}" model endpoint to interrogate;`
+          + " set a baseURL, or enter this provider's models by hand"
+        : `pi-ai ships no catalog for provider "${request.provider ?? ''}", so its models can only come from its`
+          + " endpoint; set a baseURL, or enter this provider's models by hand",
+      'DISCOVERY_FAILED',
+    )
+  }
+  const url = listingUrl(endpoint, api)
   // A key typed into the form wins: it may replace the stored key that is
-  // failing. The stored profile is asked past the catalog and protocol checks,
-  // and its credential resolver remains lazy so a typed key cannot fail over a
-  // stored credential it supersedes. A route may still authenticate through a
-  // deployment-owned Authorization header when neither key exists.
-  const stored = storedProfile?.()
+  // failing. The stored credential resolver remains lazy so a typed key
+  // cannot fail over a stored credential it supersedes. A route may still
+  // authenticate through a deployment-owned Authorization header when neither
+  // key exists.
   const supplied = request.apiKey ?? await stored?.resolveApiKey()
   const apiKey = supplied === undefined ? undefined : usableProbeKey(supplied)
   let response: Response
@@ -358,5 +430,5 @@ export async function discoverModels(
   } catch (error: unknown) {
     throw new LlmError(`${url} did not answer with JSON`, 'DISCOVERY_FAILED', { cause: error })
   }
-  return readListing(body)
+  return withInstalledCapacities(readListing(body), request.provider)
 }

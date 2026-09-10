@@ -149,6 +149,17 @@ export interface PiAiProviderProfile {
   defaultInput?: PiAiModality[]
   /** Provider request headers, validated against Fetch when the profile resolves; Harness attribution wins reserved names. */
   headers?: Record<string, string>
+  /**
+   * Let the Models page's "Fetch available models" interrogate this route's
+   * endpoint instead of answering from the installed pi-ai catalog. The
+   * catalog remains the default because its entries carry context windows and
+   * output caps a listing endpoint may not disclose; a provider that added
+   * models after the installed pi-ai release only shows them through its own
+   * listing. The interrogation stores nothing — candidates are adopted
+   * through the Models page exactly as a custom provider's are — so the
+   * served catalog stays whatever `settings.yaml` says.
+   */
+  discoverFromEndpoint?: boolean
   /** Provider-neutral pi-ai reasoning level. */
   reasoning?: ModelThinkingLevel
   /** Token budgets used by reasoning providers that support them. */
@@ -183,11 +194,13 @@ export interface PiAiProviderProfile {
 
 /** Validated profile with its route stamped and every adapter-owned default resolved. */
 export interface ResolvedPiAiProviderProfile
-  extends Omit<PiAiProviderProfile, 'apiKeyEnv' | 'retryPolicy' | 'models' | 'displayName'> {
+  extends Omit<PiAiProviderProfile, 'apiKeyEnv' | 'retryPolicy' | 'models' | 'displayName' | 'discoverFromEndpoint'> {
   /** Harness route key and the `Models` collection key (the configuration dict key). */
   provider: string
   /** Resolved display name for selectors and configuration surfaces. */
   displayName: string
+  /** Whether the route's model listing is interrogated instead of answered from the installed catalog. */
+  discoverFromEndpoint: boolean
   /** Validated credential reference, when one is configured. */
   apiKeyEnv?: CredentialRef
   /** Positive finite provider-idle interval after defaulting. */
@@ -331,6 +344,7 @@ const profile = z.object({
   defaultMaxTokens: z.number().step(1).min(1).default(DEFAULT_MAX_TOKENS),
   defaultInput: z.array(z.union(MODALITIES)).default([...DEFAULT_INPUT]),
   headers: z.dict(z.string()),
+  discoverFromEndpoint: z.boolean(),
   reasoning: z.union(THINKING_LEVELS),
   thinkingBudgets,
   cacheRetention: z.union(['none', 'short', 'long']),
@@ -455,6 +469,11 @@ export function resolveProfiles(
     // always shown route keys, and a catalog route must not silently rename
     // itself on every configuration surface just because it gained a profile.
     const displayName = source.displayName ?? provider
+    // The Models page's fetch answers a catalog route from the installed
+    // registry unless the route opts into its endpoint, so the flag resolves
+    // here beside the route's other defaults instead of being re-judged by
+    // each consumer.
+    const discoverFromEndpoint = source.discoverFromEndpoint === true
     let catalog: RouteCatalog | undefined
     let piProvider: Provider | undefined
     let catalogError: string | undefined
@@ -483,11 +502,19 @@ export function resolveProfiles(
       if (validation === 'strict' || !(error instanceof PiAiCatalogError)) throw error
       catalogError ??= error.message
     }
-    const { apiKeyEnv, retryPolicy, models: _models, displayName: _displayName, ...rest } = source
+    const {
+      apiKeyEnv,
+      retryPolicy,
+      models: _models,
+      displayName: _displayName,
+      discoverFromEndpoint: _discoverFromEndpoint,
+      ...rest
+    } = source
     resolved.set(provider, {
       ...rest,
       provider,
       displayName,
+      discoverFromEndpoint,
       ...apiKeyEnv === undefined ? {} : { apiKeyEnv: credentialRef(apiKeyEnv) },
       streamIdleTimeoutMs,
       maxRequestImageBytes,

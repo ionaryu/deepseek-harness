@@ -85,6 +85,17 @@ describe('modality schema boundary', () => {
   })
 })
 
+describe('endpoint discovery opt-in', () => {
+  it('resolves the flag explicitly, absent meaning false', () => {
+    const profiles = resolveProfiles({
+      'opencode-go': { discoverFromEndpoint: true },
+      deepseek: {},
+    })
+    expect(profiles.get('opencode-go')?.discoverFromEndpoint).toBe(true)
+    expect(profiles.get('deepseek')?.discoverFromEndpoint).toBe(false)
+  })
+})
+
 describe('request image policy bounds', () => {
   it.each([
     ['requestImagePixelBudget', 0, /requestImagePixelBudget must be a positive safe integer/],

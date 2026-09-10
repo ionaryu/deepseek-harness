@@ -4,8 +4,10 @@ import type { IncomingMessage, Server, ServerResponse } from 'node:http'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { Context } from '@deepseek-ai/cordis'
 import LlmRuntime, { userAgent } from '@deepseek-ai/dsh-llm'
+import type { LlmDiscoveredModel } from '@deepseek-ai/dsh-llm'
 import * as LlmPiAi from '@deepseek-ai/dsh-llm-pi-ai'
 import { getBuiltinModels } from '@earendil-works/pi-ai/providers/all'
+import type { BuiltinProvider } from '@earendil-works/pi-ai/providers/all'
 import { discoverModels } from '../src/discovery.ts'
 
 const servers: Server[] = []
@@ -71,6 +73,13 @@ async function harness(): Promise<Context> {
   await ctx.plugin(LlmRuntime)
   await ctx.plugin(LlmPiAi, {})
   return ctx
+}
+
+/** The installed catalog entry for one id, as discovery must enrich a listed row with. */
+function installedEntry(provider: BuiltinProvider, id: string): LlmDiscoveredModel {
+  const entry = getBuiltinModels(provider).find(model => model.id === id)
+  if (entry === undefined) throw new Error(`fixture drift: the ${provider} catalog no longer describes ${id}`)
+  return { id, name: entry.name, contextWindow: entry.contextWindow, maxTokens: entry.maxTokens }
 }
 
 describe('catalog-route model discovery', () => {
@@ -299,6 +308,83 @@ describe('draft-provider model discovery', () => {
     await ctx.plugin(LlmPiAi, { providers: { deepseek: { apiKeyEnv: 'ABSENT_FOR_DISCOVERY' } } })
 
     await expect(ctx.llm.discoverModels('llm-pi-ai', { provider: 'deepseek' })).resolves.not.toHaveLength(0)
+  })
+
+  it('interrogates the endpoint an opted-in route serves, and enriches rows the catalog still describes', async () => {
+    // A provider can add models after the pi-ai release its catalog was
+    // recorded in, so the route may opt its fetch out of the catalog answer.
+    // The endpoint decides presence; an installed entry of the same id fills
+    // the capacities its listing does not disclose, and a row the listing
+    // completed itself is kept as sent.
+    const server = await listingServer({
+      body: JSON.stringify({
+        data: [
+          { id: 'brand-new-model' },
+          { id: 'glm-5.3-flash' },
+          { id: 'deepseek-v4-flash', name: 'Overridden', contextWindow: 999, maxTokens: 888 },
+        ],
+      }),
+    })
+    const ctx = new Context()
+    await ctx.plugin(LlmRuntime)
+    process.env['OPENCODE_DISCOVERY_KEY'] = 'stored-key'
+    touchedEnv.push('OPENCODE_DISCOVERY_KEY')
+    await ctx.plugin(LlmPiAi, {
+      providers: {
+        'opencode-go': {
+          apiKeyEnv: 'OPENCODE_DISCOVERY_KEY',
+          baseURL: server.url,
+          discoverFromEndpoint: true,
+        },
+      },
+    })
+
+    await expect(ctx.llm.discoverModels('llm-pi-ai', { provider: 'opencode-go' })).resolves.toEqual([
+      { id: 'brand-new-model', name: 'brand-new-model' },
+      installedEntry('opencode-go', 'glm-5.3-flash'),
+      { id: 'deepseek-v4-flash', name: 'Overridden', contextWindow: 999, maxTokens: 888 },
+    ])
+    expect(server.paths).toEqual(['/models'])
+    expect(server.headers[0]?.authorization).toBe('Bearer stored-key')
+  })
+
+  it('interrogates the catalog provider endpoint when the opted-in route declares none', async () => {
+    // A stored route on its catalog default carries no baseURL, and the
+    // endpoint its models would reach is the catalog provider's own —
+    // https://opencode.ai/zen/go/v1/models for opencode-go. The fetch is
+    // stubbed so the URL is pinned without touching the network.
+    const requests: string[] = []
+    vi.stubGlobal('fetch', async (url: string | URL, _init?: RequestInit) => {
+      requests.push(String(url))
+      return new Response(JSON.stringify({ data: [{ id: 'brand-new-model' }] }), {
+        status: 200,
+        headers: { 'content-type': 'application/json' },
+      })
+    })
+    const ctx = new Context()
+    await ctx.plugin(LlmRuntime)
+    process.env['OPENCODE_DISCOVERY_KEY'] = 'stored-key'
+    touchedEnv.push('OPENCODE_DISCOVERY_KEY')
+    await ctx.plugin(LlmPiAi, {
+      providers: { 'opencode-go': { apiKeyEnv: 'OPENCODE_DISCOVERY_KEY', discoverFromEndpoint: true } },
+    })
+
+    await expect(ctx.llm.discoverModels('llm-pi-ai', { provider: 'opencode-go' }))
+      .resolves.toEqual([{ id: 'brand-new-model', name: 'brand-new-model' }])
+    expect(requests[0]).toBe('https://opencode.ai/zen/go/v1/models')
+  })
+
+  it('names the missing protocol family when a catalog route has no endpoint to derive', async () => {
+    // A catalog default endpoint comes from the installed models that speak
+    // the listing protocol; deepseek's catalog speaks none of
+    // anthropic-messages, so there is nothing to interrogate without a
+    // baseURL, and the refusal names that cause instead of a missing catalog.
+    const ctx = new Context()
+    await ctx.plugin(LlmRuntime)
+    await ctx.plugin(LlmPiAi, { providers: { deepseek: { discoverFromEndpoint: true } } })
+
+    await expect(ctx.llm.discoverModels('llm-pi-ai', { provider: 'deepseek', api: 'anthropic-messages' }))
+      .rejects.toThrow(/lists no "anthropic-messages" model endpoint/)
   })
 
   it('drops unusable rows rather than failing the whole listing', async () => {
