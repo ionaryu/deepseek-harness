@@ -1253,6 +1253,16 @@ export interface PiAiModelProfile {
    * declares the offered levels and their wire spellings.
    */
   reasoningEfforts?: false | PiAiReasoningEfforts
+  /**
+   * Wire protocol for this model, winning over the route's `api`. This is what
+   * a catalog route needs for an entry the installed catalog does not
+   * describe: a route whose installed catalog mixes protocols has no
+   * route-level answer, and a row adopted from an endpoint interrogation
+   * carries the protocol its listing was shaped for.
+   */
+  api?: string
+  /** Endpoint for this model, winning over the route's `baseURL`; what an endpoint interrogation named for an undescribed id. */
+  baseURL?: string
   /** pi-ai wire-compatibility switches for this model, winning over the route's per field; one its protocol does not declare is refused. */
   compat?: PiAiCompatProfile
 }

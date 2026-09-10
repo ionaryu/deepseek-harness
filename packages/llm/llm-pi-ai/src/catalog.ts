@@ -605,6 +605,16 @@ export interface PiAiModelProfile {
    * declares the offered levels and their wire spellings.
    */
   reasoningEfforts?: false | PiAiReasoningEfforts
+  /**
+   * Wire protocol for this model, winning over the route's `api`. This is what
+   * a catalog route needs for an entry the installed catalog does not
+   * describe: a route whose installed catalog mixes protocols has no
+   * route-level answer, and a row adopted from an endpoint interrogation
+   * carries the protocol its listing was shaped for.
+   */
+  api?: string
+  /** Endpoint for this model, winning over the route's `baseURL`; what an endpoint interrogation named for an undescribed id. */
+  baseURL?: string
   /** pi-ai wire-compatibility switches for this model, winning over the route's per field; one its protocol does not declare is refused. */
   compat?: PiAiCompatProfile
 }
@@ -885,12 +895,14 @@ export function resolveRouteModels(
     if (seen.has(entry.id)) invalid(provider, `lists model "${entry.id}" more than once`)
     seen.add(entry.id)
     const base = defaults.get(entry.id)
-    const api = request.api ?? base?.api ?? routeApi
+    // The entry's own declaration wins: a catalog route mixes protocols, so an
+    // id the installed catalog does not describe can only name its own.
+    const api = entry.api ?? request.api ?? base?.api ?? routeApi
     if (api === undefined) {
       invalid(provider, `model "${entry.id}" needs an api; the installed catalog does not describe it, so set the`
         + ' route\'s api to the wire protocol its endpoint speaks')
     }
-    const baseUrl = request.baseURL ?? base?.baseUrl ?? providerBaseUrl
+    const baseUrl = entry.baseURL ?? request.baseURL ?? base?.baseUrl ?? providerBaseUrl
     if (baseUrl === undefined) {
       invalid(provider, `model "${entry.id}" needs a baseURL; the installed catalog does not describe this route`)
     }

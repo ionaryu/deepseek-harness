@@ -432,6 +432,33 @@ describe('catalog routes with per-model configuration', () => {
       .toEqual(getBuiltinModels('deepseek').map(model => model.id).sort())
   })
 
+  it('serves an id the catalog does not describe through its own wire declaration', () => {
+    // A catalog route whose installed catalog mixes protocols has no
+    // route-level api/baseURL answer for a newly adopted id; the entry's own
+    // declaration is what carries it, exactly as an endpoint interrogation
+    // adopted it.
+    const resolved = resolveProfiles({
+      'opencode-go': {
+        models: [{ id: 'deepseek-flash', api: 'openai-completions', baseURL: 'https://opencode.ai/zen/go/v1' }],
+      },
+    })
+    const model = resolved.get('opencode-go')?.piProvider?.getModels().find(entry => entry.id === 'deepseek-flash')
+    expect(model?.api).toBe('openai-completions')
+    expect(model?.baseUrl).toBe('https://opencode.ai/zen/go/v1')
+    expect(model?.contextWindow).toBe(262_144)
+  })
+
+  it('lets an entry-level wire declaration win over the catalog model it describes', () => {
+    const resolved = resolveProfiles({
+      deepseek: {
+        models: [{ id: 'deepseek-v4-flash', api: 'openai-responses', baseURL: 'https://proxy.example/v1' }],
+      },
+    })
+    const model = resolved.get('deepseek')?.piProvider?.getModels().find(entry => entry.id === 'deepseek-v4-flash')
+    expect(model?.api).toBe('openai-responses')
+    expect(model?.baseUrl).toBe('https://proxy.example/v1')
+  })
+
   it('overrides one catalog model field and defaults the rest from the catalog', async () => {
     const server = await mockServer([])
     const [catalogModel] = getBuiltinModels('deepseek')

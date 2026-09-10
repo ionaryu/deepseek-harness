@@ -141,13 +141,15 @@ function capacitySpelling(value: number | undefined): string {
   return value === undefined ? '' : formatCapacity(value)
 }
 
-/** Adopt a candidate, keeping whatever capacities the provider disclosed. */
+/** Adopt a candidate, keeping whatever the provider disclosed about it. */
 function adopt(candidate: LlmDiscoveredModel): ModelDraft {
   return {
     id: candidate.id,
     ...candidate.name === undefined ? {} : { name: candidate.name },
     ...candidate.contextWindow === undefined ? {} : { contextWindow: candidate.contextWindow },
     ...candidate.maxTokens === undefined ? {} : { maxTokens: candidate.maxTokens },
+    ...candidate.api === undefined ? {} : { api: candidate.api },
+    ...candidate.baseURL === undefined ? {} : { baseURL: candidate.baseURL },
   }
 }
 

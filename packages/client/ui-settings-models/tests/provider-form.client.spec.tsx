@@ -531,6 +531,10 @@ describe('endpoint interrogation', () => {
     const discover = vi.fn(() => Promise.resolve(ok([
       { id: 'kept', contextWindow: 999 },
       { id: 'fresh', contextWindow: 4096, maxTokens: 2048, name: 'Fresh' },
+      // A row the installed catalog does not describe carries the wire facts
+      // its interrogation named; the card cannot edit them, so the write is
+      // what shows them riding along.
+      { id: 'wired', api: 'openai-completions', baseURL: 'https://acme.test/v1' },
     ])))
     const { mutate } = await mountSection({
       discover,
@@ -540,9 +544,9 @@ describe('endpoint interrogation', () => {
 
     fireEvent.click(screen.getByText(en.fetchModels))
     await screen.findByText(en.fetchTitle)
-    // The already-configured row starts unchecked; the new one starts checked.
+    // The already-configured row starts unchecked; the new ones start checked.
     const boxes = [...document.querySelectorAll<HTMLInputElement>('input[type="checkbox"]')]
-    expect(boxes.map(box => box.checked)).toEqual([false, true])
+    expect(boxes.map(box => box.checked)).toEqual([false, true, true])
     fireEvent.click(screen.getByText(en.fetchAdopt))
 
     expect(screen.getByLabelText<HTMLInputElement>(`${en.modelId} 2`).value).toBe('fresh')
@@ -550,12 +554,14 @@ describe('endpoint interrogation', () => {
     expandModel(2)
     expect(screen.getByLabelText<HTMLInputElement>(`${en.modelContextWindow} 2`).value).toBe('4096')
     expect(screen.getByLabelText<HTMLInputElement>(`${en.modelMaxTokens} 2`).value).toBe('2048')
+    expect(screen.getByLabelText<HTMLInputElement>(`${en.modelId} 3`).value).toBe('wired')
 
     fireEvent.click(screen.getByText(en.apply))
     await waitFor(() => { expect(mutate).toHaveBeenCalled() })
     expect(firstMutate(mutate).ops[0]?.value).toEqual([
       { id: 'kept', contextWindow: 111 },
       { id: 'fresh', contextWindow: 4096, maxTokens: 2048, name: 'Fresh' },
+      { id: 'wired', api: 'openai-completions', baseURL: 'https://acme.test/v1' },
     ])
   })
 

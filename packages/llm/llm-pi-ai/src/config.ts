@@ -313,6 +313,8 @@ const modelFields = {
   name: z.string(),
   contextWindow: z.number().step(1).min(1),
   maxTokens: z.number().step(1).min(1),
+  api: z.union(supportedProtocols()),
+  baseURL: z.string(),
   // No explicit default, unlike the route's `defaultInput`: schemastery
   // materializes `[]` for an absent array, and resolution reads that as "no
   // answer here" so the catalog entry below still applies.

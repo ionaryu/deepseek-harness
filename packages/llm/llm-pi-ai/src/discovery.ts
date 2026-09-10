@@ -252,23 +252,29 @@ function catalogListingEndpoint(provider: string | undefined, api: string): stri
 }
 
 /**
- * Fill a listed row's blank capacities and name from the installed catalog
- * entry of the same id. The endpoint decides which ids exist — that is why a
- * route asks it — while the registry stays the better source for the
- * capacities a listing may not disclose. Catalog-only ids are not appended:
- * resurrecting one the endpoint stopped serving would undo the reason for
- * asking. A row the catalog does not describe carries no capacities, and a
- * route whose adopted entry names none serves through its own defaults.
+ * Enrich a listed reply with the route's installed entries. The endpoint
+ * decides which ids exist — that is why a route asks it — while the registry
+ * stays the better source for the capacities a listing may not disclose, so a
+ * listed id the catalog still describes inherits that entry's context window,
+ * output cap, and display name. A listed id the catalog does not describe
+ * cannot be materialized from installed defaults; it carries the protocol and
+ * endpoint the interrogation itself used, which is what the row owes the
+ * route. Catalog-only ids are never appended: resurrecting one the endpoint
+ * stopped serving would undo the reason for asking.
  */
-function withInstalledCapacities(
+function enrichListedRows(
   listed: readonly LlmDiscoveredModel[],
   provider: string | undefined,
+  api: string,
+  baseURL: string,
 ): readonly LlmDiscoveredModel[] {
   const installed = provider === undefined ? undefined : catalogModels(provider)
   if (installed === undefined || installed.size === 0) return listed
   return listed.map((model) => {
     const base = installed.get(model.id)
-    if (base === undefined) return model
+    if (base === undefined) {
+      return { ...model, api, baseURL }
+    }
     return {
       ...model,
       ...model.contextWindow === undefined ? { contextWindow: base.contextWindow } : {},
@@ -430,5 +436,5 @@ export async function discoverModels(
   } catch (error: unknown) {
     throw new LlmError(`${url} did not answer with JSON`, 'DISCOVERY_FAILED', { cause: error })
   }
-  return withInstalledCapacities(readListing(body), request.provider)
+  return enrichListedRows(readListing(body), request.provider, api, endpoint)
 }

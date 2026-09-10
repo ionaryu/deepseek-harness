@@ -696,6 +696,14 @@ interface LlmDiscoveredModel {
   contextWindow?: number
   /** Maximum output tokens, when disclosed. */
   maxTokens?: number
+  /**
+   * Wire protocol the endpoint that advertised the model speaks, when the
+   * interrogation used one. A route the catalog does not describe cannot
+   * materialize an adopted id without it.
+   */
+  api?: string
+  /** Endpoint that advertised the model, when the interrogation used one. */
+  baseURL?: string
 }
 ```
 

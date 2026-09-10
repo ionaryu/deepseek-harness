@@ -340,7 +340,9 @@ describe('draft-provider model discovery', () => {
     })
 
     await expect(ctx.llm.discoverModels('llm-pi-ai', { provider: 'opencode-go' })).resolves.toEqual([
-      { id: 'brand-new-model', name: 'brand-new-model' },
+      // An id the catalog does not describe carries the protocol and endpoint
+      // the interrogation itself used — what the adopted row owes the route.
+      { id: 'brand-new-model', name: 'brand-new-model', api: 'openai-completions', baseURL: server.url },
       installedEntry('opencode-go', 'glm-5.3-flash'),
       { id: 'deepseek-v4-flash', name: 'Overridden', contextWindow: 999, maxTokens: 888 },
     ])
@@ -369,8 +371,14 @@ describe('draft-provider model discovery', () => {
       providers: { 'opencode-go': { apiKeyEnv: 'OPENCODE_DISCOVERY_KEY', discoverFromEndpoint: true } },
     })
 
-    await expect(ctx.llm.discoverModels('llm-pi-ai', { provider: 'opencode-go' }))
-      .resolves.toEqual([{ id: 'brand-new-model', name: 'brand-new-model' }])
+    await expect(ctx.llm.discoverModels('llm-pi-ai', { provider: 'opencode-go' })).resolves.toEqual([
+      {
+        id: 'brand-new-model',
+        name: 'brand-new-model',
+        api: 'openai-completions',
+        baseURL: 'https://opencode.ai/zen/go/v1',
+      },
+    ])
     expect(requests[0]).toBe('https://opencode.ai/zen/go/v1/models')
   })
 
