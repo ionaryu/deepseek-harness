@@ -704,6 +704,8 @@ interface LlmDiscoveredModel {
   contextWindow?: number
   /** Maximum output tokens, when disclosed. */
   maxTokens?: number
+  /** Accepted input types when disclosed by the catalog or endpoint; absent means unknown. */
+  inputModalities?: readonly ModelModality[]
   /**
    * Wire protocol the endpoint that advertised the model speaks, when the
    * interrogation used one. A route the catalog does not describe cannot
