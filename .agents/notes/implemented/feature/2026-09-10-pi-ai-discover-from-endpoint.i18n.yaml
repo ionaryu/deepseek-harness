@@ -1,6 +1,22 @@
-# Bilingual-pair consistency record (docs/i18n/README.md): the git blob hash of each
-# side as of the last confirmed-consistent state. Both languages carry equal authority;
-# after editing either side, bring the other along and re-record with:
+# Bilingual-pair consistency record for 2026-09-10-pi-ai-discover-from-endpoint.md (docs/i18n/README.md): per heading
+# section, a hash of its English and Chinese blocks outside code blocks and generated regions.
+# After editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write .agents/notes/implemented/feature/2026-09-10-pi-ai-discover-from-endpoint.md
-2026-09-10-pi-ai-discover-from-endpoint.md: 539b00674b6ca08cc0dd9c5f474791d8103f50b5
-2026-09-10-pi-ai-discover-from-endpoint.zh.md: 849329b303f1e62625e1756bdc82d4a12be4a079
+/agent-note-opting-a-route-s-model-discovery-into-its-endpoint:
+  en: 715d6ef49d2780f7
+  zh: f153ee6d5131d28c
+/agent-note-opting-a-route-s-model-discovery-into-its-endpoint/problem:
+  en: 903d56612075c637
+  zh: 89f53d7de4285165
+/agent-note-opting-a-route-s-model-discovery-into-its-endpoint/decision:
+  en: 7fd25a58d0d78eeb
+  zh: b00750f4c4614ab8
+/agent-note-opting-a-route-s-model-discovery-into-its-endpoint/alternatives-considered:
+  en: 28c7fdff6d4386dc
+  zh: 38adfca68d347a36
+/agent-note-opting-a-route-s-model-discovery-into-its-endpoint/consequences:
+  en: 1a5c9f21ba1c6843
+  zh: ff0b495c6c1e285c
+/agent-note-opting-a-route-s-model-discovery-into-its-endpoint/testing:
+  en: 07cb13c48b7dcdc7
+  zh: fe7edf8dcff177cf
