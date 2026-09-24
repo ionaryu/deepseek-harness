@@ -20,7 +20,7 @@ A route may set `discoverFromEndpoint: true`. Its interrogation skips the instal
 
 **Endpoint reply without enrichment.** Every listed row would carry whatever the listing discloses; for a listing like opencode-go's (ids only), adopting any model means hand-typing the wire facts and capacities the installed catalog or the interrogation already records. Rejected: the registry stays the better source for what a row partially discloses.
 
-**A provider-id rule for opencode routes.** Special-casing `opencode*` keys bakes one provider's endpoint convention into the adapter. Rejected: the lagging-catalog situation is generic, so the choice belongs to the route's configuration.
+**A provider-id rule for opencode routes.** Special-casing `opencode*` keys bakes one provider's endpoint convention into the adapter. Rejected: the lagging-catalog situation is generic, so the choice belongs to the route's configuration. This rejection covers deriving a discovery endpoint only; the request-time `x-opencode-session` header is a separate decision, recorded with its limits at `packages/llm/llm-pi-ai/src/adapter.ts`.
 
 ## Consequences
 

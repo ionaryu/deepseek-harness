@@ -2,5 +2,5 @@
 # side as of the last confirmed-consistent state. Both languages carry equal authority;
 # after editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write .agents/notes/implemented/feature/2026-09-10-pi-ai-discover-from-endpoint.md
-2026-09-10-pi-ai-discover-from-endpoint.md: 74efe7e42966338184d8c8fcca9c3cf189fd3937
-2026-09-10-pi-ai-discover-from-endpoint.zh.md: 3dabcc05d9511887df665aa34e271cf066be164b
+2026-09-10-pi-ai-discover-from-endpoint.md: 539b00674b6ca08cc0dd9c5f474791d8103f50b5
+2026-09-10-pi-ai-discover-from-endpoint.zh.md: 849329b303f1e62625e1756bdc82d4a12be4a079

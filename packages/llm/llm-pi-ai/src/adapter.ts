@@ -203,9 +203,8 @@ function reasoningInfo(
 
 /**
  * Merge deployment headers while removing case-insensitive attribution
- * collisions. `opencodeSessionId`, when present, rides `x-opencode-session` —
- * the stable per-conversation id OpenCode Go requires on every request for
- * routing and prompt cache affinity.
+ * collisions. `opencodeSessionId`, when present, rides `x-opencode-session`
+ * and wins over a deployment header of that name.
  */
 function requestHeaders(
   headers: Readonly<Record<string, string>> | undefined,
@@ -387,9 +386,16 @@ export class PiAiAdapter extends LlmAdapter {
           },
         }, onReplayDegrade)
       const sessionId = options.sessionId === undefined ? undefined : String(options.sessionId)
-      // OpenCode Go rejects requests without a stable per-conversation id
-      // (400 MissingSessionID). Scoped to opencode* routes: other providers
-      // must not receive the conversation id.
+      // OpenCode Go rejects a request carrying no per-conversation id (400
+      // MissingSessionID). pi-ai reaches this endpoint through no switch that
+      // emits this header name — `sendSessionAffinityHeaders` sends
+      // `session_id`, `x-client-request-id`, and `x-session-affinity`, or
+      // `x-session-id` under the openrouter format — and a static profile
+      // header cannot carry a per-session value, so the route key is the only
+      // signal available. Its limits: a route that reaches this endpoint under
+      // another key sends no header, an `opencode*` route that does not reach
+      // it sends the conversation id, making that endpoint an identity
+      // recipient, and a caller that supplies no `sessionId` sends none.
       const opencodeSessionId = options.provider.toLowerCase().startsWith('opencode') ? sessionId : undefined
       const events = snapshot.models.streamSimple(model, context, {
         ...profileOptions(profile, reasoning, apiKey),
