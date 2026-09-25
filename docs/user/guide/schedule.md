@@ -8,16 +8,33 @@ Create reminders in a conversation, then inspect active and inactive tasks and e
 
 ## Table of Contents
 
+- [Enable Schedule](#enable-schedule)
 - [Create reminders](#create-reminders)
 - [Inspect and delete tasks](#manage-tasks)
 - [Edit an active task](#edit-timing)
 - [Timing and delivery reference](#timing-and-delivery)
 - [Further Exploration](#further-exploration)
 
+<a id="enable-schedule"></a>
+## Enable Schedule
+
+The shipped `web` composition declares the three Schedule rows with `disabled: true`, so a new profile has neither the reminder tools nor the Automation tasks page. Add them to `$DSH_HOME/profiles/<profile>/cordis.patch.yml` and restart the profile:
+
+```yaml
+- id: time-context
+  disabled: false
+- id: schedule
+  disabled: false
+- id: ui-schedule
+  disabled: false
+```
+
+Address the rows by id as above. The shipped bundle already declares all three, and a patch that inserts copies leaves one id with two entries. `time-context` supplies the current time and browser zone that resolve an unqualified date or time in a request; `schedule` mounts the reminder tools and their Host service; `ui-schedule` mounts the Automation tasks page and the Session-header clock.
+
 <a id="create-reminders"></a>
 ## Create reminders
 
-The shipped Web profile mounts Schedule with the clock context that gives the model the current time and the browser's zone. Configure a model provider before asking it to create reminders.
+The shipped Web profile declares Schedule with the clock context that gives the model the current time and the browser's zone, all disabled until you [enable them](#enable-schedule). Configure a model provider before asking it to create reminders.
 
 Ask the model to create, list, edit, or delete reminders. It uses `schedule_create`, `schedule_list`, `schedule_update`, and `schedule_delete` (update changes one reminder in place and keeps its id and saved delivery records); the Automation tasks page's New action opens a New Session for a creation instead, with the request already written in its composer. Supported choices are a one-time delay in positive whole seconds, an absolute date and time, a fixed interval of at least one minute, a daily local time with an IANA time zone, a weekly local time with an IANA time zone and ISO weekdays from Monday 1 through Sunday 7, or a five-field cron expression with an explicit IANA time zone, stored in canonical form.
 

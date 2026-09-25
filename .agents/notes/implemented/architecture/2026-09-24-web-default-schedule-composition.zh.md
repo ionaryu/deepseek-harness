@@ -10,9 +10,9 @@ Status: implemented
 
 ## Decision
 
-`packages/bundle/web-app/cordis.patch.yml` 在其宿主行列表中插入 `time-context` 与 `schedule`，并让 `ui-schedule` 保持启用；`packages/bundle/web-app/package.json` 声明这两个包，这是 `verify-cordis-config` 对 bundle patch 中裸包名的要求。因此 `web` profile 会交付自动化任务页面、Session 页头的提醒时钟、空闲 Session 行的时钟标记与悬停列表、右侧栏任务页签，并在每个 live 根 Agent 上注册 `schedule_create`、`schedule_list`、`schedule_update` 与 `schedule_delete`。
+`packages/bundle/web-app/cordis.patch.yml` 在其宿主行列表中插入 `time-context` 与 `schedule`，并声明 `ui-schedule`；`packages/bundle/web-app/package.json` 声明这两个包，这是 `verify-cordis-config` 对 bundle patch 中裸包名的要求。三行都以 `disabled: true` 发布，因此部署方要在自己的 profile patch 层里把这些行改为 `disabled: false`，才会得到自动化任务页面、Session 页头的提醒时钟、空闲 Session 行的时钟标记与悬停列表、右侧栏任务页签，以及注册在每个 live 根 Agent 上的 `schedule_create`、`schedule_list`、`schedule_update` 与 `schedule_delete`。该默认值由 bundle README 负责，本 note 负责这些行位于何处。
 
-`apps/cli/config/examples/schedule/cordis.yml` 已删除。`applyEntryPatches` 追加 `insert` 列表时不对 id 去重，保留该 overlay 会把 `time-context` 与 `schedule` 挂载两次；原本引用它的两个 Web 测试套件与预览打包器现在只组合发布版 profile。
+`apps/cli/config/examples/schedule/cordis.yml` 已删除。`applyEntryPatches` 追加 `insert` 列表时不对 id 去重，保留该 overlay 会把 `time-context` 与 `schedule` 挂载两次；预览打包器只组合发布版 profile，而需要这些行的测试套件通过各自的 patch 夹具组合它们。
 
 `time-context` 随 Schedule 一起发布，因为提醒请求本身给出的是墙上时钟目标。该插件在每个符合条件的步骤追加一条持久 user 消息，包含采样瞬时、附加到当前开放请求的浏览器时区，以及自前一条模型可见消息以来的经过时长。正是采样瞬时让模型能把「明天九点」这类请求落成带偏移量的 `at` 值；该解释边界及其要求的显式时区由 [Schedule 子系统](../../../../docs/subsystems/schedule.zh.md)负责。
 
@@ -20,7 +20,7 @@ Status: implemented
 
 ## Recorded sessions
 
-驱动 live 步骤的 Web 场景现在每步记录一条 time-context 读数，因此其已提交的 Session 夹具与页头 sidecar 都已重刷。一条读数中的采样瞬时、浏览器时区与经过时长是易变值，`apps/web/tests/scaffold.ts` 的 `normalizeWebSessionVolatiles` 会把它们替换为 `{{timeContextTimestamp}}`、`{{clientTimeZone}}` 和 `{{elapsed}}`。turn 与 step 序号以及"前一条事件"的基线保持可读，因此夹具仍能显示模型收到的内容。重刷会在已保留的上一代旁写入当前 writer 代次（`session.v4.jsonl`），旧代次继续作为已提交的回放基线保留。
+在启用三行的情况下驱动 live 步骤的 Web 场景每步记录一条 time-context 读数，因此其已提交的 Session 夹具与页头 sidecar 都已重刷。一条读数中的采样瞬时、浏览器时区与经过时长是易变值，`apps/web/tests/scaffold.ts` 的 `normalizeWebSessionVolatiles` 会把它们替换为 `{{timeContextTimestamp}}`、`{{clientTimeZone}}` 和 `{{elapsed}}`。turn 与 step 序号以及"前一条事件"的基线保持可读，因此夹具仍能显示模型收到的内容。重刷会在已保留的上一代旁写入当前 writer 代次（`session.v4.jsonl`），旧代次继续作为已提交的回放基线保留。
 
 ## Alternatives considered
 
@@ -32,8 +32,8 @@ Status: implemented
 
 ## Consequences
 
-- 每个 Web 会话的请求头多出四个工具 schema，且每个符合条件的步骤追加一条持久 user 消息。从不创建提醒的对话也要承担这份 token 成本。
-- 时钟读数对模型可见且持久，因此它与其他 user 消息一样参与回放、压缩，并出现在导出的 Session 日志中。
-- 想要恢复旧行为的部署，可在自己的 profile patch 层禁用 `time-context`、`schedule` 与 `ui-schedule` 三行；能力本身没有改动。
-- 完整预设表的 `cordis_inspect_query` `listTools` 答案现在超过基础组合 12,500 token 的内联预算，因此 spill 策略改为保留该答案的首尾并给出 spill 路径，而不是完整 JSON。
-- 仓库预览镜像与两个 Web 测试套件都不再传 overlay 参数，一处组合改动即同时作用于所有界面。
+- 启用这些行后，每个 Web 会话的请求头多出四个工具 schema，且每个符合条件的步骤追加一条持久 user 消息。从不创建提醒的对话也要承担这份 token 成本。
+- 启用 `time-context` 后，时钟读数对模型可见且持久，因此它与其他 user 消息一样参与回放、压缩，并出现在导出的 Session 日志中。
+- 部署方在自己的 profile patch 层中按 id 启用这三行；插入副本的 patch 会让同一个 id 出现两个条目，因为 `applyEntryPatches` 追加 `insert` 列表时不对 id 去重。能力本身没有改动。
+- 在部署方启用这些行的情况下，完整预设表的 `cordis_inspect_query` `listTools` 答案超过基础组合 12,500 token 的内联预算，因此 spill 策略改为保留该答案的首尾并给出 spill 路径，而不是完整 JSON。
+- 两个 Web 测试套件与 CLI 计时套件都把启用 patch 作为 overlay 参数传入，因此驱动 live 步骤的用例会自行组合这些行。
