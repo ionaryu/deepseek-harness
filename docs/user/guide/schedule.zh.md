@@ -8,16 +8,33 @@
 
 ## 目录
 
+- [启用 Schedule](#enable-schedule)
 - [创建提醒](#create-reminders)
 - [查看和删除任务](#manage-tasks)
 - [修改活动任务](#edit-timing)
 - [时间与投递参考](#timing-and-delivery)
 - [延伸阅读](#further-exploration)
 
+<a id="enable-schedule"></a>
+## 启用 Schedule
+
+发布的 `web` 组合把 Schedule 的三行都声明为 `disabled: true`，因此新建的 profile 既没有提醒工具，也没有自动化任务页面。把这三行加入 `$DSH_HOME/profiles/<profile>/cordis.patch.yml`，并重启该 profile：
+
+```yaml
+- id: time-context
+  disabled: false
+- id: schedule
+  disabled: false
+- id: ui-schedule
+  disabled: false
+```
+
+像上面这样按 id 定位这些行。发布的 bundle 已经声明了这三行，插入副本的 patch 会让同一个 id 出现两个条目。`time-context` 提供解析请求中未限定日期或时间所需的当前时间与浏览器时区；`schedule` 挂载提醒工具及其宿主服务；`ui-schedule` 挂载自动化任务页面与 Session 顶部的时钟入口。
+
 <a id="create-reminders"></a>
 ## 创建提醒
 
-发布的 Web profile 会挂载 Schedule 及其时钟上下文，后者把当前时间和浏览器时区交给模型。在请求模型创建提醒前，先配置模型 provider。
+发布的 Web profile 会声明 Schedule 及其时钟上下文，后者把当前时间和浏览器时区交给模型；在[启用这些行](#enable-schedule)之前它们都处于停用状态。在请求模型创建提醒前，先配置模型 provider。
 
 向模型提出创建、列出、修改或删除提醒的请求。模型使用 `schedule_create`、`schedule_list`、`schedule_update` 和 `schedule_delete`（更新原地修改一条提醒，保留其 id 与已保存的投递记录）；「自动化任务」页面的「新建」操作则为创建打开一个新会话，其 composer 已写好该请求。支持正整数秒的一次性延迟、绝对日期时间、至少一分钟的固定间隔、带 IANA 时区的每日本地时间、带 IANA 时区和 ISO 星期（周一 1 至周日 7）的每周本地时间，以及带显式 IANA 时区的五字段 cron 表达式（表达式以规范化形式保存）。
 

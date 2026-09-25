@@ -10,9 +10,9 @@ The Automation tasks page, the Session reminder catalog, and the `schedule_*` to
 
 ## Decision
 
-`packages/bundle/web-app/cordis.patch.yml` inserts `time-context` and `schedule` in its Host row list and leaves `ui-schedule` enabled; `packages/bundle/web-app/package.json` declares both packages, which `verify-cordis-config` requires for a bare row name in a bundle patch. The `web` profile consequently ships the Automation tasks page, the Session-header reminder clock, the idle Session row's clock mark and hover list, the right-Sidebar task tab, and `schedule_create`, `schedule_list`, `schedule_update`, and `schedule_delete` on every live root Agent.
+`packages/bundle/web-app/cordis.patch.yml` inserts `time-context` and `schedule` in its Host row list and declares `ui-schedule`; `packages/bundle/web-app/package.json` declares both packages, which `verify-cordis-config` requires for a bare row name in a bundle patch. All three rows ship with `disabled: true`, so a deployment enables the Automation tasks page, the Session-header reminder clock, the idle Session row's clock mark and hover list, the right-Sidebar task tab, and `schedule_create`, `schedule_list`, `schedule_update`, and `schedule_delete` by patching the rows to `disabled: false` in its own profile patch layer. That default belongs to the bundle README; this note owns where the rows live.
 
-`apps/cli/config/examples/schedule/cordis.yml` is deleted. `applyEntryPatches` appends an `insert` list without de-duplicating ids, so keeping the overlay would mount `time-context` and `schedule` a second time; the two Web suites and the preview packer that named the overlay compose the shipped profile alone.
+`apps/cli/config/examples/schedule/cordis.yml` is deleted. `applyEntryPatches` appends an `insert` list without de-duplicating ids, so keeping the overlay would mount `time-context` and `schedule` a second time; the preview packer composes the shipped profile alone, and the suites that need the rows compose them through their own patch fixtures.
 
 `time-context` ships with Schedule because a reminder request states a wall-clock target. The plugin appends one durable user message per eligible step carrying the sampled instant, the browser zone attached to the open request, and the elapsed time since the preceding model-visible message. The sampling instant is what lets the model turn a request such as "tomorrow at nine" into an offset-bearing `at` value; the [Schedule subsystem](../../../../docs/subsystems/schedule.md) owns that interpretation boundary and the explicit-zone requirement it feeds.
 
@@ -20,7 +20,7 @@ The Host service, its storage domain, and the client half are unchanged. This de
 
 ## Recorded sessions
 
-A Web scenario that drives a live step now logs one time-context reading per step, so its committed Session fixture and header sidecars were refreshed. A reading's sampled instant, browser zone, and elapsed duration are volatile, and `normalizeWebSessionVolatiles` in `apps/web/tests/scaffold.ts` replaces them with `{{timeContextTimestamp}}`, `{{clientTimeZone}}`, and `{{elapsed}}`. The turn and step numbers and the preceding-event baseline stay readable, so a fixture still shows what the model received. Refresh writes the current writer generation (`session.v4.jsonl`) beside the retained predecessors, which remain committed replay baselines.
+A Web scenario that drives a live step with the rows enabled logs one time-context reading per step, so its committed Session fixture and header sidecars were refreshed. A reading's sampled instant, browser zone, and elapsed duration are volatile, and `normalizeWebSessionVolatiles` in `apps/web/tests/scaffold.ts` replaces them with `{{timeContextTimestamp}}`, `{{clientTimeZone}}`, and `{{elapsed}}`. The turn and step numbers and the preceding-event baseline stay readable, so a fixture still shows what the model received. Refresh writes the current writer generation (`session.v4.jsonl`) beside the retained predecessors, which remain committed replay baselines.
 
 ## Alternatives considered
 
@@ -32,8 +32,8 @@ A Web scenario that drives a live step now logs one time-context reading per ste
 
 ## Consequences
 
-- Every Web session's request header carries four additional tool schemas, and every eligible step appends one durable user message. A conversation that never creates a reminder pays that token cost.
-- The clock reading is model-visible and durable, so it replays, compacts, and appears in exported Session logs like any other user message.
-- A deployment that wants the previous behavior disables the `time-context`, `schedule`, and `ui-schedule` rows in its own profile patch layer; the capability itself is untouched.
-- The `cordis_inspect_query` `listTools` answer for a full preset table now passes the base composition's 12,500-token inline budget, so the spill policy retains that answer's head and tail with a spill path instead of the complete JSON.
-- The repository preview image and both Web suites drop their overlay arguments, so one composition change reaches every surface at once.
+- With the rows enabled, every Web session's request header carries four additional tool schemas, and every eligible step appends one durable user message. A conversation that never creates a reminder pays that token cost.
+- With `time-context` enabled, the clock reading is model-visible and durable, so it replays, compacts, and appears in exported Session logs like any other user message.
+- A deployment enables the three rows in its own profile patch layer by id; a patch that inserts copies leaves one id with two entries, because `applyEntryPatches` appends an `insert` list without de-duplicating ids. The capability itself is untouched.
+- Where a deployment enables the rows, the `cordis_inspect_query` `listTools` answer for a full preset table passes the base composition's 12,500-token inline budget, so the spill policy retains that answer's head and tail with a spill path instead of the complete JSON.
+- The two Web suites and the CLI timing suite pass the enabling patch as an overlay argument, so a case that drives a live step composes the rows itself.
